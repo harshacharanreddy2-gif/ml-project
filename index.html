@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wine Sample Clustering | ML Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root { --bg:#0b1020; --panel:#121a30; --panel2:#17223d; --text:#eef2ff; --muted:#9aa8c7; --accent:#a78bfa; --blue:#60a5fa; --line:#263452; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at top right,#20265a 0,#0b1020 38%); color:var(--text); font-family:Inter,Segoe UI,Arial,sans-serif; }
+    .wrap { max-width:1200px; margin:auto; padding:28px 20px 50px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:20px; flex-wrap:wrap; margin-bottom:28px; }
+    .eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:2px; font-size:12px; font-weight:800; }
+    h1 { margin:8px 0; font-size:clamp(28px,4vw,44px); line-height:1.1; }
+    .sub { color:var(--muted); max-width:720px; line-height:1.6; }
+    .pill { border:1px solid #3c4770; color:#d8d4fe; background:#171b3b; padding:10px 14px; border-radius:99px; font-size:13px; }
+    .controls { display:flex; align-items:center; gap:12px; flex-wrap:wrap; background:var(--panel); border:1px solid var(--line); padding:16px; border-radius:18px; margin:24px 0; }
+    label { color:var(--muted); font-size:14px; }
+    select,button,.download { border:1px solid #3b4b75; background:#1a2544; color:var(--text); border-radius:10px; padding:10px 14px; font:inherit; text-decoration:none; }
+    button { background:linear-gradient(135deg,#7c3aed,#4f46e5); border:0; font-weight:700; cursor:pointer; }
+    .download { margin-left:auto; }
+    .grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; }
+    .card { background:linear-gradient(180deg,var(--panel),#10172a); border:1px solid var(--line); border-radius:18px; padding:19px; min-width:0; }
+    .metric-label { color:var(--muted); font-size:13px; }
+    .metric { font-size:30px; font-weight:800; margin:9px 0 4px; letter-spacing:-.5px; }
+    .small { color:var(--muted); font-size:12px; }
+    .section { margin-top:28px; }
+    h2 { font-size:21px; margin:0 0 14px; }
+    .two { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    .chart-card { min-height:300px; }
+    .chart-wrap { height:260px; position:relative; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th,td { padding:10px 9px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; }
+    th { color:#c4b5fd; font-weight:700; }
+    .table-scroll { overflow:auto; }
+    .note { background:#101b33; border-left:3px solid var(--accent); padding:14px 16px; border-radius:8px; color:#cbd5e1; line-height:1.6; }
+    footer { color:var(--muted); font-size:12px; text-align:center; padding-top:32px; }
+    @media(max-width:850px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .two { grid-template-columns:1fr; } .download { margin-left:0; } }
+    @media(max-width:480px) { .grid { grid-template-columns:1fr 1fr; } .metric { font-size:23px; } .wrap { padding:20px 12px 36px; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="eyebrow">Machine Learning · Unsupervised Learning</div>
+      <h1>Wine Sample Clustering</h1>
+      <div class="sub">Explore patterns in the Wine dataset by comparing K-Means and Hierarchical Clustering using standardized chemical features, PCA plots, and cluster-quality metrics.</div>
+    </div>
+    <div class="pill">178 samples · 13 features</div>
+  </header>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}<div class="note">{{ messages[0] }}</div>{% endif %}
+  {% endwith %}
+
+  <form class="controls" method="post">
+    <label for="clusters">Number of clusters</label>
+    <select name="clusters" id="clusters">
+      {% for k in range(2, 9) %}
+      <option value="{{ k }}" {% if data.n_clusters == k %}selected{% endif %}>{{ k }} clusters</option>
+      {% endfor %}
+    </select>
+    <button type="submit">Run clustering</button>
+    <a class="download" href="{{ url_for('download', clusters=data.n_clusters) }}">Download CSV ↓</a>
+  </form>
+
+  <section class="grid">
+    <div class="card"><div class="metric-label">Dataset samples</div><div class="metric">{{ data.rows }}</div><div class="small">Wine observations</div></div>
+    <div class="card"><div class="metric-label">Chemical features</div><div class="metric">{{ data.features }}</div><div class="small">Standardized before clustering</div></div>
+    <div class="card"><div class="metric-label">PCA variance shown</div><div class="metric">{{ (data.explained_variance * 100)|round(1) }}%</div><div class="small">Combined variance in 2 components</div></div>
+    <div class="card"><div class="metric-label">Higher silhouette score</div><div class="metric" style="font-size:23px">{{ data.comparison }}</div><div class="small">Based on this run's silhouette score</div></div>
+  </section>
+
+  <section class="section">
+    <h2>Algorithm comparison</h2>
+    <div class="two">
+      <div class="card">
+        <h2>K-Means</h2>
+        <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div><div class="metric-label">Silhouette ↑</div><div class="metric" style="font-size:22px">{{ data.km_metrics.silhouette }}</div></div>
+          <div><div class="metric-label">Calinski ↑</div><div class="metric" style="font-size:22px">{{ data.km_metrics.calinski }}</div></div>
+          <div><div class="metric-label">Davies ↓</div><div class="metric" style="font-size:22px">{{ data.km_metrics.davies }}</div></div>
+        </div>
+        <div class="small">Higher silhouette and Calinski-Harabasz scores are generally better; lower Davies-Bouldin is generally better.</div>
+      </div>
+      <div class="card">
+        <h2>Hierarchical Clustering</h2>
+        <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:8px">
+          <div><div class="metric-label">Silhouette ↑</div><div class="metric" style="font-size:22px">{{ data.hi_metrics.silhouette }}</div></div>
+          <div><div class="metric-label">Calinski ↑</div><div class="metric" style="font-size:22px">{{ data.hi_metrics.calinski }}</div></div>
+          <div><div class="metric-label">Davies ↓</div><div class="metric" style="font-size:22px">{{ data.hi_metrics.davies }}</div></div>
+        </div>
+        <div class="small">Uses agglomerative clustering with Ward linkage.</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section two">
+    <div class="card chart-card">
+      <h2>K-Means clusters (PCA)</h2>
+      <div class="chart-wrap"><canvas id="kmChart"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <h2>Hierarchical clusters (PCA)</h2>
+      <div class="chart-wrap"><canvas id="hiChart"></canvas></div>
+    </div>
+  </section>
+
+  <section class="section two">
+    <div class="card chart-card">
+      <h2>Cluster distribution</h2>
+      <div class="chart-wrap"><canvas id="countChart"></canvas></div>
+    </div>
+    <div class="card chart-card">
+      <h2>Metric comparison</h2>
+      <div class="chart-wrap"><canvas id="metricChart"></canvas></div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="card">
+      <h2>Dataset preview</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr>{% for col in data.sample_columns[:7] %}<th>{{ col }}</th>{% endfor %}</tr></thead>
+          <tbody>
+          {% for row in data.sample_rows %}
+            <tr>{% for col in data.sample_columns[:7] %}<td>{{ row[col] }}</td>{% endfor %}</tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="small">Showing the first 6 samples and 7 of the 13 features to keep the preview readable.</p>
+    </div>
+  </section>
+
+  <section class="section note">
+    <strong>Project conclusion:</strong> Both algorithms group wine samples using their chemical characteristics without using the dataset's predefined class labels. The silhouette score shown above identifies which method has better separation for the selected cluster count; it does not prove that one method is best for every purpose.
+  </section>
+  <footer>Wine Sample Clustering · K-Means vs Hierarchical Clustering · Built with Python, Flask, scikit-learn and Chart.js</footer>
+</div>
+
+<script>
+const xs = {{ data.pca_x|tojson }};
+const ys = {{ data.pca_y|tojson }};
+const km = {{ data.km_labels|tojson }};
+const hi = {{ data.hi_labels|tojson }};
+const k = {{ data.n_clusters|tojson }};
+const kmCounts = {{ data.km_counts|tojson }};
+const hiCounts = {{ data.hi_counts|tojson }};
+const kmM = {{ data.km_metrics|tojson }};
+const hiM = {{ data.hi_metrics|tojson }};
+const palette = ['#a78bfa','#60a5fa','#34d399','#fbbf24','#f472b6','#fb7185','#22d3ee','#c4b5fd'];
+
+function scatterSets(labels) {
+  return Array.from({length:k}, (_, c) => ({
+    label: 'Cluster ' + c,
+    data: xs.map((x,i) => labels[i] === c ? {x:x, y:ys[i]} : null).filter(Boolean),
+    backgroundColor: palette[c],
+    pointRadius: 4,
+    pointHoverRadius: 6
+  }));
+}
+const scatterOptions = {
+  responsive:true, maintainAspectRatio:false,
+  plugins:{legend:{labels:{color:'#dbeafe'}}},
+  scales:{
+    x:{title:{display:true,text:'Principal Component 1',color:'#9aa8c7'},ticks:{color:'#9aa8c7'},grid:{color:'#263452'}},
+    y:{title:{display:true,text:'Principal Component 2',color:'#9aa8c7'},ticks:{color:'#9aa8c7'},grid:{color:'#263452'}}
+  }
+};
+new Chart(document.getElementById('kmChart'), {type:'scatter',data:{datasets:scatterSets(km)},options:scatterOptions});
+new Chart(document.getElementById('hiChart'), {type:'scatter',data:{datasets:scatterSets(hi)},options:scatterOptions});
+new Chart(document.getElementById('countChart'), {
+  type:'bar',
+  data:{labels:Array.from({length:k},(_,i)=>'Cluster '+i),datasets:[
+    {label:'K-Means',data:kmCounts,backgroundColor:'#a78bfa'},
+    {label:'Hierarchical',data:hiCounts,backgroundColor:'#60a5fa'}
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#dbeafe'}}},
+    scales:{x:{ticks:{color:'#9aa8c7'},grid:{color:'#263452'}},y:{beginAtZero:true,ticks:{color:'#9aa8c7'},grid:{color:'#263452'}}}}
+});
+new Chart(document.getElementById('metricChart'), {
+  type:'bar',
+  data:{labels:['Silhouette','Calinski-Harabasz','Davies-Bouldin'],datasets:[
+    {label:'K-Means',data:[kmM.silhouette,kmM.calinski,kmM.davies],backgroundColor:'#a78bfa'},
+    {label:'Hierarchical',data:[hiM.silhouette,hiM.calinski,hiM.davies],backgroundColor:'#60a5fa'}
+  ]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#dbeafe'}}},
+    scales:{x:{ticks:{color:'#9aa8c7'},grid:{color:'#263452'}},y:{beginAtZero:true,ticks:{color:'#9aa8c7'},grid:{color:'#263452'}}}}
+});
+</script>
+</body>
+</html>
